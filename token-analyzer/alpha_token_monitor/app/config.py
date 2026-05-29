@@ -21,6 +21,11 @@ class Settings(BaseSettings):
  twitter_crawl_limit_per_run: int = 10
  twitter_match_keywords: str = "airdrop,空投,tge,pre-tge,booster"
  twitter_exclude_keywords: str = "test,fake,scam"
+ # Twitter API 官方配置
+ twitter_api_key: str | None = None
+ twitter_api_secret: str | None = None
+ twitter_access_token: str | None = None
+ twitter_access_token_secret: str | None = None
 
  model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

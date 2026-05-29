@@ -1,5 +1,5 @@
 import re
-import snscrape.modules.twitter as sntwitter
+import tweepy
 from sqlalchemy.orm import Session
 from datetime import datetime
 
@@ -38,6 +38,36 @@ def get_or_create_crawl_state(db: Session, account_name: str) -> TwitterCrawlSta
     return state
 
 
+def get_twitter_client() -> tweepy.Client:
+    """获取Twitter官方API客户端"""
+    if not all([
+        settings.twitter_api_key,
+        settings.twitter_api_secret,
+        settings.twitter_access_token,
+        settings.twitter_access_token_secret
+    ]):
+        raise RuntimeError("Twitter API 配置不完整，请检查.env文件")
+    
+    # 配置代理
+    proxy = settings.outbound_proxy
+    client = tweepy.Client(
+        consumer_key=settings.twitter_api_key,
+        consumer_secret=settings.twitter_api_secret,
+        access_token=settings.twitter_access_token,
+        access_token_secret=settings.twitter_access_token_secret,
+        proxy=proxy
+    )
+    return client
+
+
+def get_user_id_from_username(client: tweepy.Client, username: str) -> str:
+    """根据用户名获取用户ID"""
+    response = client.get_user(username=username)
+    if not response or not response.data:
+        raise RuntimeError(f"无法获取用户 {username} 的信息")
+    return str(response.data.id)
+
+
 async def crawl_twitter_account(account_name: str, db: Session) -> int:
     """爬取单个Twitter账号的最新推文
     :return: 匹配到的有效推文数量
@@ -51,45 +81,41 @@ async def crawl_twitter_account(account_name: str, db: Session) -> int:
     last_tweet_id = int(state.last_tweet_id) if state.last_tweet_id.isdigit() else 0
 
     try:
-        # 构建爬取查询：从指定账号爬取，并且比last_tweet_id新的推文
-        query = f"from:{account_name}"
-        if last_tweet_id > 0:
-            query += f" since_id:{last_tweet_id}"
-
-        # 爬取推文
-        tweets = []
-        for i, tweet in enumerate(sntwitter.TwitterSearchScraper(query).get_items()):
-            if i >= limit:
-                break
-            tweets.append(tweet)
-
-        if not tweets:
+        client = get_twitter_client()
+        user_id = get_user_id_from_username(client, account_name)
+        
+        # 获取用户最新推文
+        tweets = client.get_users_tweets(
+            id=user_id,
+            max_results=limit,
+            since_id=last_tweet_id if last_tweet_id > 0 else None,
+            tweet_fields=["created_at", "public_metrics"],
+            exclude=["retweets", "replies"]  # 排除转发和回复，只看原创推文
+        )
+        
+        if not tweets or not tweets.data:
             return 0
-
-        # 处理推文，从新到旧，更新最大tweet_id
+        
+        # 处理推文，从旧到新，更新最大tweet_id
         max_tweet_id = last_tweet_id
-        for tweet in reversed(tweets):
+        for tweet in reversed(tweets.data):
             tweet_id = tweet.id
             if tweet_id > max_tweet_id:
                 max_tweet_id = tweet_id
-
-            # 排除转发、回复
-            if tweet.retweetedTweet or tweet.inReplyToUserId:
-                continue
-
-            content = tweet.rawContent
+            
+            content = tweet.text
             lower_content = content.lower()
-
+            
             # 匹配关键词
             has_match = any(k in lower_content for k in match_keywords)
             if not has_match:
                 continue
-
+            
             # 排除关键词
             has_exclude = any(k in lower_content for k in exclude_keywords)
             if has_exclude:
                 continue
-
+            
             # 构造公告payload，调用现有接口创建
             payload = AnnouncementCreate(
                 platform="twitter",
@@ -99,19 +125,19 @@ async def crawl_twitter_account(account_name: str, db: Session) -> int:
                 post_url=f"https://twitter.com/{account_name}/status/{tweet_id}",
                 content=content
             )
-
+            
             # 调用现有创建接口，复用全部逻辑
             result = await create_announcement(payload, db)
             if not result.get("duplicate"):
                 match_count += 1
                 state.increment_matched()
-
+        
         # 更新最后爬取ID
         if max_tweet_id > last_tweet_id:
             state.last_tweet_id = str(max_tweet_id)
             state.last_crawled_at = datetime.utcnow()
             db.commit()
-
+        
         return match_count
 
     except Exception as e:
