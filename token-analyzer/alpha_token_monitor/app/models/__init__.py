@@ -5,3 +5,4 @@ from app.models.wallet_transfer import WatchedAddressTokenTransfer
 from app.models.social_announcement import SocialAnnouncement
 from app.models.signal import PreTgeSignal
 from app.models.alert import Alert
+from app.models.twitter_crawl_state import TwitterCrawlState

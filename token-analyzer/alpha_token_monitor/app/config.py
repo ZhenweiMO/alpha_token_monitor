@@ -14,6 +14,14 @@ class Settings(BaseSettings):
 
  outbound_proxy: str | None = None
 
+ # Twitter crawler config
+ twitter_crawler_enabled: bool = True
+ twitter_crawl_interval: int = 15
+ twitter_crawl_accounts: str = "binance_wallet"
+ twitter_crawl_limit_per_run: int = 10
+ twitter_match_keywords: str = "airdrop,空投,tge,pre-tge,booster"
+ twitter_exclude_keywords: str = "test,fake,scam"
+
  model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
