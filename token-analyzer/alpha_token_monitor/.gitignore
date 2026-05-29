@@ -1,0 +1,24 @@
+# venv
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# env
+.env
+.env.*
+!.env.example
+
+# db
+*.db
+*.sqlite
+
+# ide
+.vscode/
+.idea/
+.DS_Store
+
+# logs
+logs/
+*.log
